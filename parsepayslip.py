@@ -179,9 +179,8 @@ def extract(pdfbinary):
     # One stream per page. This is a hack.
     pagestreams = re.findall(rb"^stream.+?^endstream", pdfbinary, flags=re.DOTALL | re.MULTILINE)
 
+    # For each page get a list of String objects
     pagetoks = [tok(stream) for stream in pagestreams]
-
-    # For each page get a list of (font, x, y, string) tuples
     pagestrings = [interpret(tokens) for tokens in pagetoks]
 
     # Chop the header off page 3 and onwards
