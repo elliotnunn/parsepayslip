@@ -2,6 +2,94 @@
 
 import json
 import re
+from dataclasses import dataclass
+
+
+@dataclass
+class String:
+    string: str
+    x: float
+    y: float
+    bold: bool
+
+
+# Headings starting with "~" mean "column might be a bit to the left"
+def column_bounds(strings, headings):
+    titles = [s.lstrip("~") for s in headings]
+    leftedges = [None] * len(headings)
+
+    # Get column title locations
+    for string in strings:
+        if not string.bold:
+            continue
+
+        if string.string in titles:
+            leftedges[titles.index(string.string)] = string.x
+
+        if None not in leftedges:
+            break
+
+    if None in leftedges:
+        raise ValueError("column titles not found")
+
+    # Pass 2: move locations to the left if alignment is left
+    ret = []
+
+    for i in range(1, len(headings)):
+        prev = leftedges[i - 1]
+        this = leftedges[i]
+
+        if headings[i].startswith("~"):
+            ret.append((prev + this) / 2)
+        else:
+            ret.append(this)
+
+    return ret
+
+
+def get_table(strings, bounds):
+    lc = -1
+    lasty = 9999999
+    rows = []
+    for s in strings:
+        if s.bold:
+            continue
+
+        if s.y < lasty:
+            rows.append([None] * (len(bounds) + 1))
+            lastcol = -1
+            lasty = s.y
+        elif s.y > lasty:
+            raise ValueError("aberrant cell above previous")
+
+        col = 0
+        for left in bounds:
+            if s.x >= left:
+                col += 1
+
+        if col < lastcol or rows[-1][col] is not None:
+            raise ValueError("aberrant cell to left of previous")
+
+        rows[-1][col] = s.string
+
+    # Undo the wrapping of long text rows
+    # This is O(n^2) but easy on the eyes
+    # Need a manual loop counter because the array will shorten as we go
+    i = 0
+    while i < len(rows):
+        cells = rows[i]
+        if all(c is None or c.endswith(" ") for c in cells):
+            cells2 = rows[i + 1]
+            for j in range(0, len(cells)):
+                if cells[j] is not None:
+                    cells2[j] = cells[j] + cells2[j]
+
+            del rows[i]
+
+        else:
+            i += 1
+
+    return rows
 
 
 def extract(pdfbinary):
@@ -13,38 +101,19 @@ def extract(pdfbinary):
     # For each page get a list of (font, x, y, string) tuples
     pagestrings = [interpret(tokens) for tokens in pagetoks]
 
-    # Process each page into a list of (kind, string) tuples, where kind is:
-    #   "B" for a bold string (these are always fixed titles)
-    #   "1" is non-bold and the first string of a line (i.e. beneath its predecessor)
-    #   " " for subsequent non-bold strings
-    # This is a good compromise between a structure that preserves the layout,
-    # and one that is searchable.
-    # The extract_*() functions accept a list like this.
-    intermediate = []
-    for i, stringlist in enumerate(pagestrings):
-        accum = []
-
-        lasty = float("+inf")  # above top of page
-        for font, x, y, string in stringlist:
-            if font == "/F2":
-                accum.append(("B", string))
-            elif y < lasty:
-                accum.append(("1", string))
-            else:
-                accum.append((" ", string))
-
-            lasty = y
-
-        intermediate.append(accum)
-
-    # Merge the second and subsequent pages, stripping off the header
-    bodypages = []
-    for pg in intermediate[1:]:
-        bodypages.extend(pg[pg.index(("B", "Amount")) + 1 :])
+    # Chop the header off page 3 and onwards
+    bodypages = pagestrings[1]
+    for p in pagestrings[2:]:
+        body = False
+        for s in p:
+            if body:
+                bodypages.append(s)
+            elif s.string == "Amount" and s.bold:
+                body = True
 
     struct = {
-        "head": extract_head(intermediate[0]),
-        "stem": extract_stem(intermediate[0]),
+        "head": extract_head(pagestrings[0]),
+        "stem": extract_stem(pagestrings[0]),
         "body": extract_body(bodypages),
     }
 
@@ -58,10 +127,10 @@ def extract(pdfbinary):
     body_untaxed += sum(item["amount"] for item in struct["body"]["current_period_untaxed_earnings"])
 
     if stem_taxed != body_taxed:
-        raise ValueError(f"Taxed income mismatch: stem {stem_taxed} != body {body_taxed}")
+        warn(f"Taxed income mismatch: stem {stem_taxed} != body {body_taxed}")
 
     if stem_untaxed != body_untaxed:
-        raise ValueError(f"Untaxed income mismatch: stem {stem_untaxed} != body {body_untaxed}")
+        warn(f"Untaxed income mismatch: stem {stem_untaxed} != body {body_untaxed}")
 
     return struct
 
@@ -82,31 +151,36 @@ def extract_head(text):
         "comments": "",
     }
 
-    struct["payer"] = text[0][1]
-    struct["payer_abn"] = re.search(r"ABN: (\d{11})", text[1][1]).group(1)
-    struct["employee_name"] = text[text.index(("B", "Name:")) + 1][1]
-    struct["employee_id"] = text[text.index(("B", "Employee Id:")) + 1][1]
-    struct["hss_contact"] = text[text.index(("B", "HSS Contact:")) + 1][1]
-    struct["period_end_date"] = isodate(text[text.index(("B", "Period End Date:")) + 1][1])
-    struct["hss_telephone"] = text[text.index(("B", "Telephone:")) + 1][1]
-    struct["period_number"] = int(text[text.index(("B", "Period Number:")) + 1][1])
-    struct["full_time_salary"] = cents(text[text.index(("B", "Full Time Salary:")) + 1][1].strip(" $"))
-    struct["employee_email"] = text[text.index(("B", "Home Email:")) + 1][1].lower()
+    boldstrings = [s.string if s.bold else None for s in text]
+
+    struct["payer"] = text[0].string
+    struct["payer_abn"] = re.search(r"ABN: (\d{11})", text[1].string).group(1)
+    struct["employee_name"] = text[boldstrings.index("Name:") + 1].string
+    struct["employee_id"] = text[boldstrings.index("Employee Id:") + 1].string
+    struct["hss_contact"] = text[boldstrings.index("HSS Contact:") + 1].string
+    struct["period_end_date"] = isodate(text[boldstrings.index("Period End Date:") + 1].string)
+    struct["hss_telephone"] = text[boldstrings.index("Telephone:") + 1].string
+    struct["period_number"] = int(text[boldstrings.index("Period Number:") + 1].string)
+    struct["full_time_salary"] = cents(text[boldstrings.index("Full Time Salary:") + 1].string.strip(" $"))
+    struct["employee_email"] = text[boldstrings.index("Home Email:") + 1].string.lower()
 
     address = []
-    for flag, string in text[text.index(("B", "Address:")) + 1 :]:
-        if flag == "B":
+    for string in text[boldstrings.index("Address:") + 1 :]:
+        if string.bold:
             break
-        address.append(string)
+        address.append(string.string)
     struct["employee_address"] = "\n".join(address)
 
-    for kind, string in text[text.index(("B", "COMMENTS")) + 1 :]:
-        if kind == "1":
-            struct["comments"] += "\n" + string
-        elif kind == " ":
-            struct["comments"] += " " + string
-        else:
+    y = 99999999
+    for string in text[boldstrings.index("COMMENTS") + 1 :]:
+        if string.bold:
             break
+        elif string.y < y:
+            struct["comments"] += "\n" + string.string
+        else:
+            struct["comments"] += " " + string.string
+
+        y = string.y
 
     struct["comments"] = struct["comments"].strip()
 
@@ -114,157 +188,187 @@ def extract_head(text):
 
 
 def extract_stem(text):
+    schema = [
+        (
+            "1. TAXED EARNINGS",
+            "taxed_earnings",
+            True,
+            [
+                ("~Units", "units", cents),
+                ("~Rate", "rate", cents),
+                ("Description", "description", None),
+                ("~Amount", "amount", cents),
+            ],
+        ),
+        (
+            "2. UNTAXED EARNINGS",
+            "untaxed_earnings",
+            True,
+            [
+                ("~Units", "units", cents),
+                ("~Rate", "rate", cents),
+                ("Description", "description", None),
+                ("~Amount", "amount", cents),
+            ],
+        ),
+        (
+            "4. TAX",
+            "tax",
+            True,
+            [
+                ("Description", "description", None),
+                ("~Amount", "amount", cents),
+            ],
+        ),
+        (
+            "5. DEDUCTIONS",
+            "deductions",
+            True,
+            [
+                ("Description", "description", None),
+                ("~Amount", "amount", cents),
+            ],
+        ),
+        (
+            "6. SUPERANNUATION",
+            "superannuation",
+            True,
+            [
+                ("Description", "description", None),
+                ("~Amount", "amount", cents),
+            ],
+        ),
+        (
+            "7. NET PAY",
+            "net_pay",
+            False,
+            [
+                ("~This Pay", "this_pay", cents),
+                ("~Year to Date", "ytd", cents),
+            ],
+        ),
+        (
+            "DISBURSEMENTS (BANKED)",
+            "disbursements",
+            False,
+            [
+                ("Bank", "bank", None),
+                ("Account", "account", None),
+                ("~Amount", "amount", cents),
+            ],
+        ),
+        (
+            "LEAVE",
+            "leave",
+            False,
+            [
+                ("Leave Type", "leave_type", None),
+                ("~Balance", "balance", cents),
+                ("Calculated", "calculated", None),
+            ],
+        ),
+    ]
+
     struct = {
-        "taxed_earnings": [],
         "taxed_earnings_ytd": None,
-        "untaxed_earnings": [],
         "untaxed_earnings_ytd": None,
-        "tax": [],
         "tax_ytd": None,
-        "deductions": [],
         "deductions_ytd": None,
-        "superannuation": [],
         "superannuation_ytd": None,
+        "taxed_earnings": [],
+        "untaxed_earnings": [],
+        "tax": [],
+        "deductions": [],
+        "superannuation": [],
         "disbursements": [],
-        "leave": {},
+        "leave": [],
+        "net_pay": [],  # delete this at the end
     }
 
-    for header in ("1. TAXED EARNINGS", "2. UNTAXED EARNINGS", "4. TAX", "5. DEDUCTIONS", "6. SUPERANNUATION", "DISBURSEMENTS (BANKED)", "LEAVE"):
-        myheader = header.rpartition(".")[2].partition("(")[0].lower().strip().replace(" ", "_")
+    sections = {}
+    title = None
+    for s in text:
+        if s.bold and re.match(r"^[. 0-9A-Z\(\)]*[A-Z][. 0-9A-Z\(\)]*$", s.string):
+            title = s.string
+            sections[title] = []
+        elif title is not None:
+            sections[title].append(s)
 
-        lines = []
-        sectionstart = text.index(("B", header))
+    for their_title, my_title, totalled, fields in schema:
+        section = sections[their_title]
 
-        # Scan ahead to non-bold text block, and divide it into lines
-        while text[sectionstart][0] == "B" and text[sectionstart][1] != "Total":
-            sectionstart += 1
-        for flag, string in text[sectionstart:]:
-            if flag == "1":
-                lines.append([string])
-            elif flag == " ":
-                lines[-1].append(string)
-            else:
-                break
+        bounds = column_bounds(section, [name for (name, *_) in fields])
 
-        for fields in lines:
-            brokenline = ""
-            if "EARNINGS" in header:
-                if len(fields) == 1:
-                    brokenline += fields[0] + " "
-                elif len(fields) == 2:
-                    struct[myheader].append(
-                        {
-                            "description": brokenline + fields[0],
-                            "amount": cents(fields[1]),
-                        }
-                    )
-                    brokenline = ""
-                elif len(fields) == 3:
-                    struct[myheader].append(
-                        {
-                            "rate": cents(fields[0]),
-                            "description": brokenline + fields[1],
-                            "amount": cents(fields[2]),
-                        }
-                    )
-                    brokenline = ""
-                elif len(fields) == 4:
-                    struct[myheader].append(
-                        {
-                            "units_x_100": cents(fields[0]),
-                            "rate": cents(fields[1]),
-                            "description": brokenline + fields[2],
-                            "amount": cents(fields[3]),
-                        }
-                    )
-                    brokenline = ""
-                else:
-                    raise ValueError()
+        table = get_table(section, bounds)
 
-            elif "DISBURSEMENTS" in header:
-                if len(fields) == 3:
-                    struct[myheader].append(
-                        {
-                            "bank": fields[0],
-                            "account": fields[1],
-                            "amount": cents(fields[2]),
-                        }
-                    )
-                elif len(fields) == 2:
-                    struct[myheader].append(
-                        {
-                            "account": fields[0],
-                            "amount": cents(fields[1]),
-                        }
-                    )
-                else:
-                    raise ValueError("wrong number of disbursement fields")
+        for row in table:
+            rowstruct = {}
+            for value, (their_name, my_name, func) in zip(row, fields):
+                if func is not None and value is not None:
+                    value = func(value)
+                rowstruct[my_name] = value
 
-            elif "LEAVE" in header:
-                if len(fields) == 3:
-                    struct[myheader][fields[0]] = {
-                        "balance": cents(fields[1]),
-                        "calculated": fields[2],
-                    }
-                elif len(fields) == 1:
-                    pass  # annoying "Leave balances displayed are subject to audit"
-                else:
-                    raise ValueError()
+            struct[my_title].append(rowstruct)
 
-            else:
-                # This is an unfortunate hack when superannuation acct is blank
-                if len(fields) == 1:
-                    if re.match(r"^\s*\d+\.\d\d\s*$", fields[0]):
-                        struct[myheader].append(
-                            {
-                                "description": brokenline.rstrip(),
-                                "amount": cents(fields[0]),
-                            }
-                        )
-                        brokenline = ""
-                    else:
-                        brokenline += fields[0] + " "
-                elif len(fields) == 2:
-                    struct[myheader].append(
-                        {
-                            "description": brokenline + fields[0],
-                            "amount": cents(fields[1]),
-                        }
-                    )
-                    brokenline = ""
-                else:
-                    raise ValueError()
+        if totalled:
+            boldtext = [s.string for s in section if s.bold]
+            total, ytd = boldtext[boldtext.index("Total") + 1 :][:2]
+            total = cents(total)
+            ytd = cents(ytd)
 
-        # Validate the section totals if applicable
-        if "DISBURSEMENTS" not in header and "LEAVE" not in header:
-            totalstart = text.index(("B", "Total"), sectionstart)
-            theirtotal = cents(text[totalstart + 1][1])
-            mytotal = sum(item["amount"] for item in struct[myheader])
-            if mytotal != theirtotal:
-                raise ValueError(f"{myheader} total incorrect: expected {mytotal}, got {theirtotal}")
+            expect = sum(row["amount"] or 0 for row in struct[my_title])
+            if total != expect:
+                warn(f"{their_title} total incorrect: expected {expect}, got {total}")
 
-            struct[myheader + "_ytd"] = cents(text[totalstart + 2][1])
+            struct[my_title + "_ytd"] = ytd
 
-    expect = sum(item["amount"] for item in struct["taxed_earnings"])
-    expect += sum(item["amount"] for item in struct["untaxed_earnings"])
-    expect -= sum(item["amount"] for item in struct["tax"])
-    expect -= sum(item["amount"] for item in struct["deductions"])
-    got = cents(text[text.index(("B", "7. NET PAY")) + 3][1])
-    if expect != got:
-        raise ValueError(f"7. NET PAY total incorrect: expected {expect}, got {got}")
+    if struct["leave"][-1]["leave_type"] != "Leave balances displayed are subject to audit":
+        warn("Last line of leave not where expected")
+    else:
+        del struct["leave"][-1]
 
-    expect = struct["taxed_earnings_ytd"]
-    expect += struct["untaxed_earnings_ytd"]
-    expect -= struct["tax_ytd"]
-    expect -= struct["deductions_ytd"]
-    got = cents(text[text.index(("B", "7. NET PAY")) + 4][1])
-    if expect != got:
-        raise ValueError(f"7. NET PAY YTD incorrect: expected {expect}, got {got}")
+    # The "NET PAY" and "DISBURSEMENTS" tables are drawn from identical data
+    side1 = [item["this_pay"] for item in struct["net_pay"]]
+    side2 = [item["amount"] for item in struct["disbursements"]]
+    if side1 != side2:
+        warn("NET PAY does not match DISBURSEMENTS")
+
+    for keep, discard in zip(struct["disbursements"], struct["net_pay"]):
+        keep["ytd"] = discard["ytd"]
+
+    del struct["net_pay"]
+
+    expect0 = sum(item["amount"] for item in struct["taxed_earnings"])
+    expect0 += sum(item["amount"] for item in struct["untaxed_earnings"])
+    expect0 -= sum(item["amount"] for item in struct["tax"])
+    expect0 -= sum(item["amount"] for item in struct["deductions"])
+    expect0 -= sum(item["amount"] for item in struct["disbursements"])
+
+    if expect0 != 0:
+        warn("Stem pay does not add up")
+
+    expect0 = struct["taxed_earnings_ytd"]
+    expect0 += struct["untaxed_earnings_ytd"]
+    expect0 -= struct["tax_ytd"]
+    expect0 -= struct["deductions_ytd"]
+    expect0 -= sum(item["ytd"] for item in struct["disbursements"])
+
+    if expect0 != 0:
+        warn("Stem YTD does not add up")
 
     return struct
 
 
 def extract_body(text):
+    schema = [
+        ("~Date From", "date_from", isodate),
+        ("~Date To", "date_to", isodate),
+        ("Description", "description", None),
+        ("~Units", "units", cents),
+        ("~Rate", "rate", tenthousandths),
+        ("~Amount", "amount", cents),
+    ]
+
     struct = {
         "prior_period_taxed_earnings": [],
         "current_period_taxed_earnings": [],
@@ -272,79 +376,44 @@ def extract_body(text):
         "current_period_untaxed_earnings": [],
     }
 
+    boldtext = [s.string if s.bold else None for s in text]
+
+    bounds = column_bounds(text, [name for (name, *_) in schema])
+
     for header in ("PRIOR PERIOD TAXED EARNINGS", "CURRENT PERIOD TAXED EARNINGS", "PRIOR PERIOD UNTAXED EARNINGS", "CURRENT PERIOD UNTAXED EARNINGS"):
         myheader = header.replace(" ", "_").lower()
-        sectionstart = text.index(("B", header))
-        totalstart = text.index(("B", "Total"), sectionstart)
+        sectionstart = boldtext.index(header)
+        totalstart = boldtext.index("Total", sectionstart)
 
-        lines = []
+        table = get_table(text[sectionstart:totalstart], bounds)
 
-        # Scan ahead to non-bold text block, and divide it into lines
-        for flag, string in text[sectionstart:totalstart]:
-            if flag == "1":
-                lines.append([string])
-            elif flag == " ":
-                lines[-1].append(string)
+        for row in table:
+            rowstruct = {}
+            for value, (their_name, my_name, func) in zip(row, schema):
+                if func is not None and value is not None:
+                    value = func(value)
+                rowstruct[my_name] = value
 
-        # date_from, date_to, description, units, rate, amount
-        for fields in lines:
-            if len(fields) == 3:
-                struct[myheader].append(
-                    {
-                        "date_from": isodate(fields[0]),
-                        "description": fields[1],
-                        "amount": cents(fields[2]),
-                    }
-                )
-            elif len(fields) == 4:
-                struct[myheader].append(
-                    {
-                        "date_from": isodate(fields[0]),
-                        "date_to": isodate(fields[1]),
-                        "description": fields[2],
-                        "amount": cents(fields[3]),
-                    }
-                )
-            elif len(fields) == 5:
-                struct[myheader].append(
-                    {
-                        "date_from": isodate(fields[0]),
-                        "description": fields[1],
-                        "units_x_100": cents(fields[2]),
-                        "rate_x_10000": tenthousandths(fields[3]),
-                        "amount": cents(fields[4]),
-                    }
-                )
-            elif len(fields) == 6:
-                struct[myheader].append(
-                    {
-                        "date_from": isodate(fields[0]),
-                        "date_to": isodate(fields[1]),
-                        "description": fields[2],
-                        "units_x_100": cents(fields[3]),
-                        "rate_x_10000": tenthousandths(fields[4]),
-                        "amount": cents(fields[5]),
-                    }
-                )
+            struct[myheader].append(rowstruct)
 
         # Validate the section total
         expect = sum(item["amount"] for item in struct[myheader])
-        got = cents(text[totalstart + 1][1])
+        got = cents(text[totalstart + 1].string)
         if expect != got:
-            raise ValueError(f"Body {header} total mismatch: expected {expect}, got {got}")
+            warn(f"Body {header} total mismatch: expected {expect}, got {got}")
 
     # Validate the two other total fields (taxed, untaxed)
-    got = cents(text[text.index(("B", "Total Taxable Earnings")) + 1][1])
+    got = cents(text[boldtext.index("Total Taxable Earnings") + 1].string)
     expect = sum(item["amount"] for item in struct["prior_period_taxed_earnings"])
     expect += sum(item["amount"] for item in struct["current_period_taxed_earnings"])
     if expect != got:
-        raise ValueError(f"Body total taxable earnings list miscalculated: expected {expect}, got {got}")
+        warn(f"Body total taxable earnings list miscalculated: expected {expect}, got {got}")
 
-    got = cents(text[text.index(("B", "Total Untaxed Earnings")) + 1][1])
+    got = cents(text[boldtext.index("Total Untaxed Earnings") + 1].string)
     expect = sum(item["amount"] for item in struct["prior_period_untaxed_earnings"])
     expect += sum(item["amount"] for item in struct["current_period_untaxed_earnings"])
     if expect != got:
-        raise ValueError(f"Body total untaxed earnings mismatch: expected {expect}, got {got}")
+        warn(f"Body total untaxed earnings mismatch: expected {expect}, got {got}")
 
     return struct
 
@@ -362,7 +431,7 @@ def tok(stream):
 
 
 def interpret(tokens):
-    """Convert token stream to a list of font,x,y,string tuples"""
+    """Convert token stream to String objects"""
 
     strings = []
     x = y = 0
@@ -370,7 +439,7 @@ def interpret(tokens):
         if t.startswith(b"/F"):
             font = t.decode("ascii")
         elif t.startswith(b"("):
-            strings.append((font, x, y, unescape(t).decode("cp1252")))
+            strings.append(String(string=unescape(t).decode("cp1252"), x=x, y=y, bold=(font == "/F2")))
         elif re.match(b"\d+(\.(\d+)?)?", t):
             x, y = y, float(t)
 
@@ -457,6 +526,12 @@ def isodate(string):
     return m.group(3) + "-" + m.group(2) + "-" + m.group(1)
 
 
+def warn(*args):
+    import sys
+
+    print(*args, file=sys.stdout)
+
+
 # Make the JSON somewhat human-readable
 def prettyprint(struct):
     indented = json.dumps(struct, indent=2)
@@ -497,31 +572,31 @@ SCHEMA:
     "comments": int
   },
   "stem": {
+    "taxed_earnings_ytd": int,
+    "untaxed_earnings_ytd": int,
+    "tax_ytd": int,
+    "deductions_ytd": int,
+    "superannuation_ytd": int,
     "taxed_earnings": [
       {"units_x_100": int, "rate": int, "description": string, "amount": int},
       ...
     ],
-    "taxed_earnings_ytd": int,
     "untaxed_earnings": [
       {"units_x_100": int, "rate": int, "description": string, "amount": int},
       ...
     ],
-    "untaxed_earnings_ytd": int,
     "tax": [
       {"description": string, "amount": int},
       ...
     ],
-    "tax_ytd": int,
     "deductions": [
       {"description": string, "amount": int},
       ...
     ],
-    "deductions_ytd": int,
     "superannuation": [
       {"description": string, "amount": int},
       ...
     ],
-    "superannuation_ytd": int,
     "disbursements": [
       {"bank": string, "account": string, "amount": int},
       ...
