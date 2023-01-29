@@ -640,6 +640,7 @@ def prettyprint(struct):
 if __name__ == "__main__":
     import sys
     import traceback
+    from os import path
 
     if len(sys.argv) == 2 and not sys.argv[1].startswith("-"):
         inputs = [sys.argv[1]]
@@ -648,7 +649,7 @@ if __name__ == "__main__":
 
     elif len(sys.argv) >= 2 and sys.argv[1] == "-d":
         inputs = sys.argv[2:]
-        outputs = [p + ".json" for p in inputs]
+        outputs = [path.splitext(p)[0] + ".json" for p in inputs]
         forgive = True
 
     else:
