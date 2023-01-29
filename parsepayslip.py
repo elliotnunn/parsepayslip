@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# Copyright (c) 2023 Elliot Nunn
+# Licensed under the MIT license
+
 import json
 import re
 from dataclasses import dataclass
