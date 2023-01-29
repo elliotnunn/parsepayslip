@@ -521,7 +521,7 @@ def tok(stream):
 
     toks = re.findall(rb"\((?:\\\)|[^\)])*\)|\S+", stream)
 
-    return [t for t in toks if t.startswith(b"(") or t in (b"/F1", b"/F2") or re.match(rb"[\d\.]+$", t)]
+    return toks
 
 
 def interpret(tokens):
@@ -534,8 +534,13 @@ def interpret(tokens):
             font = t.decode("ascii")
         elif t.startswith(b"("):
             strings.append(String(string=unescape(t).decode("cp1252"), x=x, y=y, bold=(font == "/F2")))
-        elif re.match(b"\d+(\.(\d+)?)?", t):
-            x, y = y, float(t)
+        elif 48 <= t[0] < 58:
+            try:
+                f = float(t)
+            except:
+                pass
+            else:
+                x, y = y, f
 
     return strings
 
@@ -557,30 +562,24 @@ def unescape(pdfstr):
     result = bytearray()
     pdfstr = iter(pdfstr)  # so we can use next(pdfstr)
     for c in pdfstr:
-        if c == ord("\\"):
+        if c == 0x5c:
             c2 = next(pdfstr)
-            if c2 == "n":
+            if c2 == 0x6e:
                 result.extend(b"\n")
-            elif c2 == "r":
+            elif c2 == 0x72:
                 result.extend(b"\r")
-            elif c2 == "t":
+            elif c2 == 0x74:
                 result.extend(b"\t")
-            elif c2 == "b":
+            elif c2 == 0x62:
                 result.extend(b"\b")
-            elif c2 == "f":
+            elif c2 == 0x66:
                 result.extend(b"\f")
-            elif c2 == "(":
-                result.extend(b"(")
-            elif c2 == ")":
-                result.extend(b")")
-            elif c2 == "\\":
-                result.extend(b"\\")
-            elif ord("0") <= c2 <= ord("7"):
+            elif 0x30 <= c2 <= 0x39:
                 c3 = next(pdfstr)
                 c4 = next(pdfstr)
-                octal = (c2 - ord("0")) * 64 + (c3 - ord("0")) * 64 + (c4 - ord("0"))
+                octal = (c2 - 0x30) * 64 + (c3 - 0x30) * 64 + (c4 - 0x30)
                 result.append(octal)
-            elif c2 == "\n":
+            elif c2 == 0xa or c2 == 0xd:
                 continue  # line continuation
             else:
                 result.append(c2)
