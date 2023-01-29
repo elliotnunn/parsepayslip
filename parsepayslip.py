@@ -196,8 +196,8 @@ def extract_stem(text):
             "taxed_earnings",
             True,
             [
-                ("~Units", "units", cents),
-                ("~Rate", "rate", cents),
+                ("~Units", "units_x_100", cents),
+                ("~Rate", "rate_x_100", cents),
                 ("Description", "description", None),
                 ("~Amount", "amount", cents),
             ],
@@ -207,8 +207,8 @@ def extract_stem(text):
             "untaxed_earnings",
             True,
             [
-                ("~Units", "units", cents),
-                ("~Rate", "rate", cents),
+                ("~Units", "units_x_100", cents),
+                ("~Rate", "rate_x_100", cents),
                 ("Description", "description", None),
                 ("~Amount", "amount", cents),
             ],
@@ -264,8 +264,8 @@ def extract_stem(text):
             "leave",
             False,
             [
-                ("Leave Type", "leave_type", None),
-                ("~Balance", "balance", cents),
+                ("Leave Type", "type", None),
+                ("~Balance", "balance_x_100", cents),
                 ("Calculated", "calculated", None),
             ],
         ),
@@ -327,7 +327,7 @@ def extract_stem(text):
 
             struct[my_title + "_ytd"] = ytd
 
-    if struct["leave"][-1]["leave_type"] != "Leave balances displayed are subject to audit":
+    if struct["leave"][-1]["type"] != "Leave balances displayed are subject to audit":
         warnings.append("Last line of leave not where expected")
     else:
         del struct["leave"][-1]
@@ -374,8 +374,8 @@ def extract_body(text):
         ("~Date From", "date_from", isodate),
         ("~Date To", "date_to", isodate),
         ("Description", "description", None),
-        ("~Units", "units", cents),
-        ("~Rate", "rate", tenthousandths),
+        ("~Units", "units_x_100", cents),
+        ("~Rate", "rate_x_10000", tenthousandths),
         ("~Amount", "amount", cents),
     ]
 
@@ -564,18 +564,18 @@ parsepayslip.py -d [PAYSLIP ...]        # create PAYSLIP.json for each pdf
 SCHEMA:
 {
   "head": {
-    "payer": string,
-    "payer_abn": string,
-    "employee_name": string,
-    "employee_id": string,
-    "employee_email": string,
-    "employee_address": string,
+    "payer": str,
+    "payer_abn": str,
+    "employee_name": str,
+    "employee_id": str,
+    "employee_email": str,
+    "employee_address": str,
     "full_time_salary": int,
-    "period_end_date": is8601,
+    "period_end_date": iso8601,
     "period_number": int,
-    "hss_contact": string,
-    "hss_telephone": string,
-    "comments": int
+    "hss_contact": str,
+    "hss_telephone": str,
+    "comments": str
   },
   "stem": {
     "taxed_earnings_ytd": int,
@@ -583,55 +583,55 @@ SCHEMA:
     "tax_ytd": int,
     "deductions_ytd": int,
     "superannuation_ytd": int,
+    "net_ytd": int,
     "taxed_earnings": [
-      {"units_x_100": int, "rate": int, "description": string, "amount": int},
+      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int},
       ...
     ],
     "untaxed_earnings": [
-      {"units_x_100": int, "rate": int, "description": string, "amount": int},
+      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int},
       ...
     ],
     "tax": [
-      {"description": string, "amount": int},
+      {"description": ..., "amount": int},
       ...
     ],
     "deductions": [
-      {"description": string, "amount": int},
+      {"description": ..., "amount": int},
       ...
     ],
     "superannuation": [
-      {"description": string, "amount": int},
+      {"description": ..., "amount": int},
       ...
     ],
-    "disbursements": [
-      {"bank": string, "account": string, "amount": int},
+    "net": [
+      {"bank": str, "account": str, "amount": int},
       ...
     ],
-    "leave": {
-      string: {"balance": int, "calculated": string},
+    "leave": [
+      {"type": str, "balance": int, "calculated": str},
       ...
-    }
+    ]
   },
   "body": {
     "prior_period_taxed_earnings": [
-      {"date_from": "yyyy-mm-dd", "date_to": "yyyy-mm-dd", "description": string, "units_x_100": int, "rate_x_10000": int, "amount": int},
-      ...
+      {"date_from": iso8601, "date_to": iso8601, "description": str, "units_x_100": int, "rate_x_10000": int, "amount": int},
     ],
     "current_period_taxed_earnings": [
-      {"date_from": "yyyy-mm-dd", "date_to": "yyyy-mm-dd", "description": string, "units_x_100": int, "rate_x_10000": int, "amount": int},
       ...
     ],
     "prior_period_untaxed_earnings": [
-      {"date_from": "yyyy-mm-dd", "date_to": "yyyy-mm-dd", "description": string, "units_x_100": int, "rate_x_10000": int, "amount": int},
       ...
     ],
     "current_period_untaxed_earnings": [
-      {"date_from": "yyyy-mm-dd", "date_to": "yyyy-mm-dd", "description": string, "units_x_100": int, "rate_x_10000": int, "amount": int},
       ...
     ]
-  }
-}
-""".strip()
+  },
+  "warnings": [
+    str,
+    ...
+  ]
+}""".strip()
 
 
 if __name__ == "__main__":
