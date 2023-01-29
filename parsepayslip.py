@@ -155,7 +155,7 @@ def get_table(strings, bounds):
 
         rows[-1][col] = s.string
 
-    # Undo the wrapping of long text rows
+    # Undo the wrapping of long strings rows
     # This is O(n^2) but easy on the eyes
     # Need a manual loop counter because the array will shorten as we go
     i = 0
@@ -220,7 +220,7 @@ def extract(pdfbinary):
     return struct
 
 
-def extract_head(text):
+def extract_head(strings):
     struct = {
         "payer": None,
         "payer_abn": None,
@@ -236,28 +236,28 @@ def extract_head(text):
         "comments": "",
     }
 
-    boldstrings = [s.string if s.bold else None for s in text]
+    boldstrings = [s.string if s.bold else None for s in strings]
 
-    struct["payer"] = text[0].string
-    struct["payer_abn"] = re.search(r"ABN: (\d{11})", text[1].string).group(1)
-    struct["employee_name"] = text[boldstrings.index("Name:") + 1].string
-    struct["employee_id"] = text[boldstrings.index("Employee Id:") + 1].string
-    struct["hss_contact"] = text[boldstrings.index("HSS Contact:") + 1].string
-    struct["period_end_date"] = isodate(text[boldstrings.index("Period End Date:") + 1].string)
-    struct["hss_telephone"] = text[boldstrings.index("Telephone:") + 1].string
-    struct["period_number"] = int(text[boldstrings.index("Period Number:") + 1].string)
-    struct["full_time_salary"] = cents(text[boldstrings.index("Full Time Salary:") + 1].string.strip(" $"))
-    struct["employee_email"] = text[boldstrings.index("Home Email:") + 1].string.lower()
+    struct["payer"] = strings[0].string
+    struct["payer_abn"] = re.search(r"ABN: (\d{11})", strings[1].string).group(1)
+    struct["employee_name"] = strings[boldstrings.index("Name:") + 1].string
+    struct["employee_id"] = strings[boldstrings.index("Employee Id:") + 1].string
+    struct["hss_contact"] = strings[boldstrings.index("HSS Contact:") + 1].string
+    struct["period_end_date"] = isodate(strings[boldstrings.index("Period End Date:") + 1].string)
+    struct["hss_telephone"] = strings[boldstrings.index("Telephone:") + 1].string
+    struct["period_number"] = int(strings[boldstrings.index("Period Number:") + 1].string)
+    struct["full_time_salary"] = cents(strings[boldstrings.index("Full Time Salary:") + 1].string.strip(" $"))
+    struct["employee_email"] = strings[boldstrings.index("Home Email:") + 1].string.lower()
 
     address = []
-    for string in text[boldstrings.index("Address:") + 1 :]:
+    for string in strings[boldstrings.index("Address:") + 1 :]:
         if string.bold:
             break
         address.append(string.string)
     struct["employee_address"] = "\n".join(address)
 
     y = 99999999
-    for string in text[boldstrings.index("COMMENTS") + 1 :]:
+    for string in strings[boldstrings.index("COMMENTS") + 1 :]:
         if string.bold:
             break
         elif string.y < y:
@@ -272,7 +272,7 @@ def extract_head(text):
     return struct
 
 
-def extract_stem(text):
+def extract_stem(strings):
     schema = [
         (
             "1. TAXED EARNINGS",
@@ -375,7 +375,7 @@ def extract_stem(text):
 
     sections = {}
     title = None
-    for s in text:
+    for s in strings:
         if s.bold and re.match(r"^[. 0-9A-Z\(\)]*[A-Z][. 0-9A-Z\(\)]*$", s.string):
             title = s.string
             sections[title] = []
@@ -452,7 +452,7 @@ def extract_stem(text):
     return struct, warnings
 
 
-def extract_body(text):
+def extract_body(strings):
     schema = [
         ("~Date From", "date_from", isodate),
         ("~Date To", "date_to", isodate),
@@ -471,16 +471,16 @@ def extract_body(text):
 
     warnings = []
 
-    boldtext = [s.string if s.bold else None for s in text]
+    boldtext = [s.string if s.bold else None for s in strings]
 
-    bounds = column_bounds(text, [name for (name, *_) in schema])
+    bounds = column_bounds(strings, [name for (name, *_) in schema])
 
     for header in ("PRIOR PERIOD TAXED EARNINGS", "CURRENT PERIOD TAXED EARNINGS", "PRIOR PERIOD UNTAXED EARNINGS", "CURRENT PERIOD UNTAXED EARNINGS"):
         myheader = header.replace(" ", "_").lower()
         sectionstart = boldtext.index(header)
         totalstart = boldtext.index("Total", sectionstart)
 
-        table = get_table(text[sectionstart:totalstart], bounds)
+        table = get_table(strings[sectionstart:totalstart], bounds)
 
         for row in table:
             rowstruct = {}
@@ -493,18 +493,18 @@ def extract_body(text):
 
         # Validate the section total
         expect = sum(item["amount"] for item in struct[myheader])
-        got = cents(text[totalstart + 1].string)
+        got = cents(strings[totalstart + 1].string)
         if expect != got:
             warnings.append(f"Body {header} total mismatch: expected {expect}, got {got}")
 
     # Validate the two other total fields (taxed, untaxed)
-    got = cents(text[boldtext.index("Total Taxable Earnings") + 1].string)
+    got = cents(strings[boldtext.index("Total Taxable Earnings") + 1].string)
     expect = sum(item["amount"] for item in struct["prior_period_taxed_earnings"])
     expect += sum(item["amount"] for item in struct["current_period_taxed_earnings"])
     if expect != got:
         warnings.append(f"Body total taxable earnings list miscalculated: expected {expect}, got {got}")
 
-    got = cents(text[boldtext.index("Total Untaxed Earnings") + 1].string)
+    got = cents(strings[boldtext.index("Total Untaxed Earnings") + 1].string)
     expect = sum(item["amount"] for item in struct["prior_period_untaxed_earnings"])
     expect += sum(item["amount"] for item in struct["current_period_untaxed_earnings"])
     if expect != got:
