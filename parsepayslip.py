@@ -246,7 +246,7 @@ def extract_head(strings):
     struct["period_end_date"] = isodate(strings[boldstrings.index("Period End Date:") + 1].string)
     struct["hss_telephone"] = strings[boldstrings.index("Telephone:") + 1].string
     struct["period_number"] = int(strings[boldstrings.index("Period Number:") + 1].string)
-    struct["full_time_salary"] = cents(strings[boldstrings.index("Full Time Salary:") + 1].string.strip(" $"))
+    struct["full_time_salary"] = cents(strings[boldstrings.index("Full Time Salary:") + 1].string.lstrip(" $"))
     struct["employee_email"] = strings[boldstrings.index("Home Email:") + 1].string.lower()
 
     address = []
@@ -592,33 +592,24 @@ def unescape(pdfstr):
 
 
 def cents(string):
-    string = string.replace(" ", "").replace(",", "").lstrip("$")
+    if not re.match(r'^ *-?\d{1,3}(,\d{3})*\.\d{2}$', string):
+        raise ValueError(f"not a dollar value: {string!r}")
 
-    if "." not in string:
-        string += ".00"
-
-    while len(string.partition(".")[2]) < 2:
-        string += "0"
-
-    return int(string.replace(".", ""))
+    return int(re.sub(r'[^\d\-]', '', string))
 
 
 def tenthousandths(string):
-    string = string.replace(" ", "").replace(",", "")
+    if not re.match(r'^ *-?\d{1,3}(,\d{3})*\.\d{4}$', string):
+        raise ValueError(f"not a ten-thousandths value: {string!r}")
 
-    if "." not in string:
-        string += ".0000"
-
-    while len(string.partition(".")[2]) < 4:
-        string += "0"
-
-    return int(string.replace(".", ""))
+    return int(re.sub(r'[^\d\-]', '', string))
 
 
 def isodate(string):
-    string = string.strip()  # whitespace
-    m = re.match(r"(\d\d)-(\d\d)-(\d\d\d\d)", string)
-    return m.group(3) + "-" + m.group(2) + "-" + m.group(1)
+    if not re.match(r'^\d{2}-\d{2}-\d{4}', string):
+        raise ValueError(f"not a dd-mm-yyyy: {string!r}")
+
+    return '-'.join(reversed(string.split('-')))
 
 
 # Make the JSON somewhat human-readable
