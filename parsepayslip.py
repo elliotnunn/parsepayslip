@@ -111,26 +111,28 @@ def extract(pdfbinary):
             elif s.string == "Amount" and s.bold:
                 body = True
 
-    struct = {
-        "head": extract_head(pagestrings[0]),
-        "stem": extract_stem(pagestrings[0]),
-        "body": extract_body(bodypages),
-    }
+    head = extract_head(pagestrings[0])
+    stem, stem_warnings = extract_stem(pagestrings[0])
+    body, body_warnings = extract_body(bodypages)
+
+    warnings = stem_warnings + body_warnings
 
     # Compare the taxed and untaxed lists from the stem and body
-    stem_taxed = sum(item["amount"] for item in struct["stem"]["taxed_earnings"])
-    stem_untaxed = sum(item["amount"] for item in struct["stem"]["untaxed_earnings"])
+    stem_taxed = sum(item["amount"] for item in stem["taxed_earnings"])
+    stem_untaxed = sum(item["amount"] for item in stem["untaxed_earnings"])
 
-    body_taxed = sum(item["amount"] for item in struct["body"]["prior_period_taxed_earnings"])
-    body_taxed += sum(item["amount"] for item in struct["body"]["current_period_taxed_earnings"])
-    body_untaxed = sum(item["amount"] for item in struct["body"]["prior_period_untaxed_earnings"])
-    body_untaxed += sum(item["amount"] for item in struct["body"]["current_period_untaxed_earnings"])
+    body_taxed = sum(item["amount"] for item in body["prior_period_taxed_earnings"])
+    body_taxed += sum(item["amount"] for item in body["current_period_taxed_earnings"])
+    body_untaxed = sum(item["amount"] for item in body["prior_period_untaxed_earnings"])
+    body_untaxed += sum(item["amount"] for item in body["current_period_untaxed_earnings"])
 
     if stem_taxed != body_taxed:
-        warn(f"Taxed income mismatch: stem {stem_taxed} != body {body_taxed}")
+        warnings.append(f"Taxed income mismatch: stem {stem_taxed} != body {body_taxed}")
 
     if stem_untaxed != body_untaxed:
-        warn(f"Untaxed income mismatch: stem {stem_untaxed} != body {body_untaxed}")
+        warnings.append(f"Untaxed income mismatch: stem {stem_untaxed} != body {body_untaxed}")
+
+    struct = {"head": head, "stem": stem, "body": body, "warnings": warnings}
 
     return struct
 
@@ -240,7 +242,7 @@ def extract_stem(text):
         ),
         (
             "7. NET PAY",
-            "net_pay",
+            "net_deleteme",
             False,
             [
                 ("~This Pay", "this_pay", cents),
@@ -249,7 +251,7 @@ def extract_stem(text):
         ),
         (
             "DISBURSEMENTS (BANKED)",
-            "disbursements",
+            "net",
             False,
             [
                 ("Bank", "bank", None),
@@ -275,15 +277,18 @@ def extract_stem(text):
         "tax_ytd": None,
         "deductions_ytd": None,
         "superannuation_ytd": None,
+        "net_ytd": None,
         "taxed_earnings": [],
         "untaxed_earnings": [],
         "tax": [],
         "deductions": [],
         "superannuation": [],
-        "disbursements": [],
+        "net": [],
         "leave": [],
-        "net_pay": [],  # delete this at the end
+        "net_deleteme": [],  # delete this at the end
     }
+
+    warnings = []
 
     sections = {}
     title = None
@@ -318,45 +323,50 @@ def extract_stem(text):
 
             expect = sum(row["amount"] or 0 for row in struct[my_title])
             if total != expect:
-                warn(f"{their_title} total incorrect: expected {expect}, got {total}")
+                warnings.append(f"{their_title} total incorrect: expected {expect}, got {total}")
 
             struct[my_title + "_ytd"] = ytd
 
     if struct["leave"][-1]["leave_type"] != "Leave balances displayed are subject to audit":
-        warn("Last line of leave not where expected")
+        warnings.append("Last line of leave not where expected")
     else:
         del struct["leave"][-1]
 
-    # The "NET PAY" and "DISBURSEMENTS" tables are drawn from identical data
-    side1 = [item["this_pay"] for item in struct["net_pay"]]
-    side2 = [item["amount"] for item in struct["disbursements"]]
-    if side1 != side2:
-        warn("NET PAY does not match DISBURSEMENTS")
+    # The YTD column of "NET_PAY" repeats the same figure over and over
+    struct["net_ytd"] = struct["net_deleteme"][0]["ytd"]
 
-    for keep, discard in zip(struct["disbursements"], struct["net_pay"]):
-        keep["ytd"] = discard["ytd"]
+    # The "NET PAY" and "DISBURSEMENTS" tables are otherwise drawn from identical data,
+    # so verify them
+    side1 = [item["this_pay"] for item in struct["net_deleteme"]]
+    side2 = [item["amount"] for item in struct["net"]]
+    if side1 != side2 and not (side1 == [0] and side2 == []):
+        warnings.append("NET PAY does not match DISBURSEMENTS")
 
-    del struct["net_pay"]
+    del struct["net_deleteme"]
 
-    expect0 = sum(item["amount"] for item in struct["taxed_earnings"])
-    expect0 += sum(item["amount"] for item in struct["untaxed_earnings"])
-    expect0 -= sum(item["amount"] for item in struct["tax"])
-    expect0 -= sum(item["amount"] for item in struct["deductions"])
-    expect0 -= sum(item["amount"] for item in struct["disbursements"])
+    taxable = sum(item["amount"] for item in struct["taxed_earnings"])
+    untaxed = sum(item["amount"] for item in struct["untaxed_earnings"])
+    tax = sum(item["amount"] for item in struct["tax"])
+    deduct = sum(item["amount"] for item in struct["deductions"])
+    net = sum(item["amount"] for item in struct["net"])
 
-    if expect0 != 0:
-        warn("Stem pay does not add up")
-
-    expect0 = struct["taxed_earnings_ytd"]
-    expect0 += struct["untaxed_earnings_ytd"]
-    expect0 -= struct["tax_ytd"]
-    expect0 -= struct["deductions_ytd"]
-    expect0 -= sum(item["ytd"] for item in struct["disbursements"])
+    expect0 = taxable + untaxed - tax - deduct - net
 
     if expect0 != 0:
-        warn("Stem YTD does not add up")
+        warnings.append(f"{taxable} taxable + {untaxed} untaxed - {tax} tax - {deduct} deduct - {net} net = {expect0}, not zero")
 
-    return struct
+    taxable_ytd = struct["taxed_earnings_ytd"]
+    untaxed_ytd = struct["untaxed_earnings_ytd"]
+    tax_ytd = struct["tax_ytd"]
+    deduct_ytd = struct["deductions_ytd"]
+    net_ytd = struct["net_ytd"]
+
+    expect0 = taxable_ytd + untaxed_ytd - tax_ytd - deduct_ytd - net_ytd
+
+    if expect0 != 0:
+        warnings.append(f"YTD {taxable_ytd} taxable + {untaxed_ytd} untaxed - {tax_ytd} tax - {deduct_ytd} deduct - {net_ytd} net = {expect0}, not zero")
+
+    return struct, warnings
 
 
 def extract_body(text):
@@ -375,6 +385,8 @@ def extract_body(text):
         "prior_period_untaxed_earnings": [],
         "current_period_untaxed_earnings": [],
     }
+
+    warnings = []
 
     boldtext = [s.string if s.bold else None for s in text]
 
@@ -400,22 +412,22 @@ def extract_body(text):
         expect = sum(item["amount"] for item in struct[myheader])
         got = cents(text[totalstart + 1].string)
         if expect != got:
-            warn(f"Body {header} total mismatch: expected {expect}, got {got}")
+            warnings.append(f"Body {header} total mismatch: expected {expect}, got {got}")
 
     # Validate the two other total fields (taxed, untaxed)
     got = cents(text[boldtext.index("Total Taxable Earnings") + 1].string)
     expect = sum(item["amount"] for item in struct["prior_period_taxed_earnings"])
     expect += sum(item["amount"] for item in struct["current_period_taxed_earnings"])
     if expect != got:
-        warn(f"Body total taxable earnings list miscalculated: expected {expect}, got {got}")
+        warnings.append(f"Body total taxable earnings list miscalculated: expected {expect}, got {got}")
 
     got = cents(text[boldtext.index("Total Untaxed Earnings") + 1].string)
     expect = sum(item["amount"] for item in struct["prior_period_untaxed_earnings"])
     expect += sum(item["amount"] for item in struct["current_period_untaxed_earnings"])
     if expect != got:
-        warn(f"Body total untaxed earnings mismatch: expected {expect}, got {got}")
+        warnings.append(f"Body total untaxed earnings mismatch: expected {expect}, got {got}")
 
-    return struct
+    return struct, warnings
 
 
 def tok(stream):
@@ -526,12 +538,6 @@ def isodate(string):
     return m.group(3) + "-" + m.group(2) + "-" + m.group(1)
 
 
-def warn(*args):
-    import sys
-
-    print(*args, file=sys.stdout)
-
-
 # Make the JSON somewhat human-readable
 def prettyprint(struct):
     indented = json.dumps(struct, indent=2)
@@ -627,26 +633,44 @@ SCHEMA:
 }
 """.strip()
 
+
 if __name__ == "__main__":
     import sys
+    import traceback
 
     if len(sys.argv) == 2 and not sys.argv[1].startswith("-"):
-        with open(sys.argv[1], "rb") as f:
-            if f.read(4) != b"%PDF":
-                sys.exit(path + ": not a PDF")
-            f.seek(0)
-            print(prettyprint(extract(f.read())))
+        inputs = [sys.argv[1]]
+        outputs = ["/dev/stdout"]
+        forgive = False
 
     elif len(sys.argv) >= 2 and sys.argv[1] == "-d":
-        for path in sys.argv[2:]:
-            try:
-                with open(path, "rb") as f, open(path + ".json", "w") as out:
-                    if f.read(4) != b"%PDF":
-                        print(path + ": not a PDF", sys.stderr)
-                    f.seek(0)
-                    print(prettyprint(extract(f.read())), file=out)
-            except Exception as e:
-                print(path + ": " + str(e), file=sys.stderr)
+        inputs = sys.argv[2:]
+        outputs = [p + ".json" for p in inputs]
+        forgive = True
 
     else:
         sys.exit(USAGE)
+
+    for inpath, outpath in zip(inputs, outputs):
+        try:
+            with open(inpath, "rb") as f:
+                if f.read(4) != b"%PDF":
+                    print(f"Error: {inpath}: Not a PDF", sys.stderr)
+                    if not forgive:
+                        sys.exit(1)
+
+                data = f.read()
+
+            struct = extract(data)
+
+            for w in struct["warnings"]:
+                print(f"Warning: {inpath}: {w}", file=sys.stderr)
+
+            with open(outpath, "w") as f:
+                f.write(prettyprint(struct))
+
+        except Exception as e:
+            print(f"Error: {inpath}:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            if not forgive:
+                sys.exit(1)
