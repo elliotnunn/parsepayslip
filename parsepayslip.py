@@ -5,6 +5,86 @@ import re
 from dataclasses import dataclass
 
 
+USAGE = """
+Unauthorised WA Department of Health payslip parser
+
+USAGE:
+parsepayslip.py PAYSLIP                 # print JSON to stdout
+parsepayslip.py -d [PAYSLIP ...]        # create PAYSLIP.json for each pdf
+
+SCHEMA:
+{
+  "head": {
+    "payer": str,
+    "payer_abn": str,
+    "employee_name": str,
+    "employee_id": str,
+    "employee_email": str,
+    "employee_address": str,
+    "full_time_salary": int,
+    "period_end_date": iso8601,
+    "period_number": int,
+    "hss_contact": str,
+    "hss_telephone": str,
+    "comments": str
+  },
+  "stem": {
+    "taxed_earnings_ytd": int,
+    "untaxed_earnings_ytd": int,
+    "tax_ytd": int,
+    "deductions_ytd": int,
+    "superannuation_ytd": int,
+    "net_ytd": int,
+    "taxed_earnings": [
+      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int},
+      ...
+    ],
+    "untaxed_earnings": [
+      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int},
+      ...
+    ],
+    "tax": [
+      {"description": ..., "amount": int},
+      ...
+    ],
+    "deductions": [
+      {"description": ..., "amount": int},
+      ...
+    ],
+    "superannuation": [
+      {"description": ..., "amount": int},
+      ...
+    ],
+    "net": [
+      {"bank": str, "account": str, "amount": int},
+      ...
+    ],
+    "leave": [
+      {"type": str, "balance": int, "calculated": str},
+      ...
+    ]
+  },
+  "body": {
+    "prior_period_taxed_earnings": [
+      {"date_from": iso8601, "date_to": iso8601, "description": str, "units_x_100": int, "rate_x_10000": int, "amount": int},
+    ],
+    "current_period_taxed_earnings": [
+      ...
+    ],
+    "prior_period_untaxed_earnings": [
+      ...
+    ],
+    "current_period_untaxed_earnings": [
+      ...
+    ]
+  },
+  "warnings": [
+    str,
+    ...
+  ]
+}""".strip()
+
+
 @dataclass
 class String:
     string: str
@@ -552,86 +632,6 @@ def prettyprint(struct):
 
     # Search for indented dictionaries with no sub-indentation
     return re.sub(r"\{\n( +)\S.*\n(?:\1\S.*\n)+ *}", sub, indented, flags=re.MULTILINE)
-
-
-USAGE = """
-Unauthorised WA Department of Health payslip parser
-
-USAGE:
-parsepayslip.py PAYSLIP                 # print JSON to stdout
-parsepayslip.py -d [PAYSLIP ...]        # create PAYSLIP.json for each pdf
-
-SCHEMA:
-{
-  "head": {
-    "payer": str,
-    "payer_abn": str,
-    "employee_name": str,
-    "employee_id": str,
-    "employee_email": str,
-    "employee_address": str,
-    "full_time_salary": int,
-    "period_end_date": iso8601,
-    "period_number": int,
-    "hss_contact": str,
-    "hss_telephone": str,
-    "comments": str
-  },
-  "stem": {
-    "taxed_earnings_ytd": int,
-    "untaxed_earnings_ytd": int,
-    "tax_ytd": int,
-    "deductions_ytd": int,
-    "superannuation_ytd": int,
-    "net_ytd": int,
-    "taxed_earnings": [
-      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int},
-      ...
-    ],
-    "untaxed_earnings": [
-      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int},
-      ...
-    ],
-    "tax": [
-      {"description": ..., "amount": int},
-      ...
-    ],
-    "deductions": [
-      {"description": ..., "amount": int},
-      ...
-    ],
-    "superannuation": [
-      {"description": ..., "amount": int},
-      ...
-    ],
-    "net": [
-      {"bank": str, "account": str, "amount": int},
-      ...
-    ],
-    "leave": [
-      {"type": str, "balance": int, "calculated": str},
-      ...
-    ]
-  },
-  "body": {
-    "prior_period_taxed_earnings": [
-      {"date_from": iso8601, "date_to": iso8601, "description": str, "units_x_100": int, "rate_x_10000": int, "amount": int},
-    ],
-    "current_period_taxed_earnings": [
-      ...
-    ],
-    "prior_period_untaxed_earnings": [
-      ...
-    ],
-    "current_period_untaxed_earnings": [
-      ...
-    ]
-  },
-  "warnings": [
-    str,
-    ...
-  ]
-}""".strip()
 
 
 if __name__ == "__main__":
