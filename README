@@ -1,0 +1,90 @@
+Unauthorised WA Department of Health payslip parser
+
+COMMAND LINE USAGE
+parsepayslip.py PAYSLIP                 # print JSON to stdout
+parsepayslip.py -d [PAYSLIP ...]        # create PAYSLIP.json for each pdf
+
+PYTHON USAGE
+import parsepayslip
+pdf = open("payslip.pdf", "rb").read()
+print(parsepayslip.extract(pdf))
+
+ABOUT
+This file is MIT licensed: feel free to include it in your projects. There are
+no dependencies outside the standard library.
+
+All the fields of the payslip are extracted. Redundant totals are checked then
+discarded. Any discrepancy is printed as a warning.
+
+Dollar amounts are expressed in integer cents. Other fractional amounts have an
+explicit scale: "x_100" or "x_10000".
+
+BUGS
+Warnings are too common, and might obscure serious errors in the payslip itself
+or in this parser.
+
+The parser is brittle. It makes convenient assumptions about visible and
+invisible details of the payslip PDF, derived from a sample of 2020-2023
+payslips. However, a significant change to the payslip structure would probably
+fail with an exception (not just a warning).
+
+The PL_FPDF document generator for Oracle SQL is open source. A review of the
+source could provide hints to make this parser more reliable.
+
+JSON SCHEMA
+{
+  "head": {
+    "payer": str,
+    "payer_abn": str,
+    "employee_name": str,
+    "employee_id": str,
+    "employee_email": str,
+    "employee_address": str,
+    "full_time_salary": int,
+    "period_end_date": iso8601,
+    "period_number": int,
+    "hss_contact": str,
+    "hss_telephone": str,
+    "comments": str
+  },
+  "stem": {
+    "taxed_earnings_ytd": int,
+    "untaxed_earnings_ytd": int,
+    "tax_ytd": int,
+    "deductions_ytd": int,
+    "superannuation_ytd": int,
+    "net_ytd": int,
+    "taxed_earnings": [
+      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int}, ...
+    ],
+    "untaxed_earnings": [
+      {"units_x_100": int, "rate_x_100": int, "description": str, "amount": int}, ...
+    ],
+    "tax": [
+      {"description": ..., "amount": int}, ...
+    ],
+    "deductions": [
+      {"description": ..., "amount": int}, ...
+    ],
+    "superannuation": [
+      {"description": ..., "amount": int}, ...
+    ],
+    "net": [
+      {"bank": str, "account": str, "amount": int}, ...
+    ],
+    "leave": [
+      {"type": str, "balance": int, "calculated": str}, ...
+    ]
+  },
+  "body": {
+    "prior_period_taxed_earnings": [
+      {"date_from": iso8601, "date_to": iso8601, "description": str, "units_x_100": int, "rate_x_10000": int, "amount": int}, ...
+    ],
+    "current_period_taxed_earnings": [...],
+    "prior_period_untaxed_earnings": [...],
+    "current_period_untaxed_earnings": [...]
+  },
+  "warnings": [
+    str, ...
+  ]
+}
