@@ -562,9 +562,9 @@ def unescape(pdfstr):
     result = bytearray()
     pdfstr = iter(pdfstr)  # so we can use next(pdfstr)
     for c in pdfstr:
-        if c == 0x5c:
+        if c == 0x5C:
             c2 = next(pdfstr)
-            if c2 == 0x6e:
+            if c2 == 0x6E:
                 result.extend(b"\n")
             elif c2 == 0x72:
                 result.extend(b"\r")
@@ -579,7 +579,7 @@ def unescape(pdfstr):
                 c4 = next(pdfstr)
                 octal = (c2 - 0x30) * 64 + (c3 - 0x30) * 64 + (c4 - 0x30)
                 result.append(octal)
-            elif c2 == 0xa or c2 == 0xd:
+            elif c2 == 0xA or c2 == 0xD:
                 continue  # line continuation
             else:
                 result.append(c2)
@@ -590,24 +590,24 @@ def unescape(pdfstr):
 
 
 def cents(string):
-    if not re.match(r'^ *-?\d{1,3}(,\d{3})*\.\d{2}$', string):
+    if not re.match(r"^ *-?\d{1,3}(,\d{3})*\.\d{2}$", string):
         raise ValueError(f"not a dollar value: {string!r}")
 
-    return int(re.sub(r'[^\d\-]', '', string))
+    return int(re.sub(r"[^\d\-]", "", string))
 
 
 def tenthousandths(string):
-    if not re.match(r'^ *-?\d{1,3}(,\d{3})*\.\d{4}$', string):
+    if not re.match(r"^ *-?\d{1,3}(,\d{3})*\.\d{4}$", string):
         raise ValueError(f"not a ten-thousandths value: {string!r}")
 
-    return int(re.sub(r'[^\d\-]', '', string))
+    return int(re.sub(r"[^\d\-]", "", string))
 
 
 def isodate(string):
-    if not re.match(r'^\d{2}-\d{2}-\d{4}', string):
+    if not re.match(r"^\d{2}-\d{2}-\d{4}", string):
         raise ValueError(f"not a dd-mm-yyyy: {string!r}")
 
-    return '-'.join(reversed(string.split('-')))
+    return "-".join(reversed(string.split("-")))
 
 
 # Make the JSON somewhat human-readable
