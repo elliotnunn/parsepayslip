@@ -673,7 +673,7 @@ if __name__ == "__main__":
                 print(f"Warning: {inpath}: {w}", file=sys.stderr)
 
             with open(outpath, "w") as f:
-                f.write(prettyprint(struct))
+                print(prettyprint(struct), file=f)
 
         except Exception as e:
             print(f"Error: {inpath}:", file=sys.stderr)
