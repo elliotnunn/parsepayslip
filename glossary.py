@@ -23,8 +23,7 @@ def glossary(payslips):
             for line in struct["stem"][f"{taxedness}_earnings"]:
                 amount = line["amount"]
                 desc = line["description"]
-                if amount != 0:
-                    shortside.setdefault(amount, []).append(desc)
+                shortside.setdefault(amount, []).append(desc)
 
             # Page 2: add the lines up
             sums = {}
