@@ -3,6 +3,7 @@
 # Copyright (c) 2023 Elliot Nunn
 # Licensed under the MIT license
 
+import datetime
 import json
 import re
 from dataclasses import dataclass
@@ -206,11 +207,11 @@ def extract(pdfbinary):
             elif s.string == "Amount" and s.bold:
                 body = True
 
-    head = extract_head(pagestrings[0])
+    head, head_warnings = extract_head(pagestrings[0])
     stem, stem_warnings = extract_stem(pagestrings[0])
     body, body_warnings = extract_body(bodypages)
 
-    warnings = stem_warnings + body_warnings
+    warnings = head_warnings + stem_warnings + body_warnings
 
     # Compare the taxed and untaxed lists from the stem and body
     stem_taxed = sum(item["amount"] for item in stem["taxed_earnings"])
@@ -248,6 +249,8 @@ def extract_head(strings):
         "comments": "",
     }
 
+    warnings = []
+
     boldstrings = [s.string if s.bold else None for s in strings]
 
     struct["payer"] = strings[0].string
@@ -260,6 +263,14 @@ def extract_head(strings):
     struct["period_number"] = int(strings[boldstrings.index("Period Number:") + 1].string)
     struct["full_time_salary"] = cents(strings[boldstrings.index("Full Time Salary:") + 1].string.lstrip(" $"))
     struct["employee_email"] = strings[boldstrings.index("Home Email:") + 1].string.lower()
+
+    got_period = struct["period_number"]
+    got_end = struct["period_end_date"]
+    expect_end = datetime.date(1994, 6, 12)  # last Sunday of fictional "period 0"
+    expect_end += datetime.timedelta(days=14 * got_period)
+    expect_end = expect_end.isoformat()
+    if expect_end != got_end:
+        warnings.append(f"Pay period {got_period} should end {expect_end} but got {got_end}")
 
     address = []
     for string in strings[boldstrings.index("Address:") + 1 :]:
@@ -281,7 +292,7 @@ def extract_head(strings):
 
     struct["comments"] = struct["comments"].strip()
 
-    return struct
+    return struct, warnings
 
 
 def extract_stem(strings):
