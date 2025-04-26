@@ -8,18 +8,17 @@ import json
 import re
 from dataclasses import dataclass
 
-
 USAGE = """
 Unauthorised WA Department of Health payslip parser
 
 COMMAND LINE USAGE
-parsepayslip.py PAYSLIP                 # print JSON to stdout
-parsepayslip.py -d [PAYSLIP ...]        # create PAYSLIP.json for each pdf
+parsepayslip PAYSLIP                 # print JSON to stdout
+parsepayslip -d [PAYSLIP ...]        # create PAYSLIP.json for each pdf
 
 PYTHON USAGE
-import parsepayslip
+import parsepayslip.parse
 pdf = open("payslip.pdf", "rb").read()
-print(parsepayslip.extract(pdf))
+print(parsepayslip.parse.extract(pdf))
 
 ABOUT
 This file is MIT licensed: feel free to include it in your projects. There are

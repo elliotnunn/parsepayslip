@@ -1,0 +1,21 @@
+[project]
+name = "parsepayslip"
+version = "0.1.0"
+description = "A CLI tool for parsing WA Department of Health payslips."
+readme = "README"
+requires-python = ">=3.6"
+license = "MIT"
+authors = [{name = "Elliot Nunn", email = "elliotnunn@fastmail.com"}]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.scripts]
+parsepayslip = "parsepayslip.parse:main"
+parseglossary = "parsepayslip.glossary:main"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"

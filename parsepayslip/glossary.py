@@ -10,7 +10,7 @@ your library of payslips.
 
 Convert your payslips to JSON using parsepayslip.py, then run:
 
-glossary.py PAYSLIP.json ...
+parseglossary PAYSLIP.json ...
 """.strip()
 
 
