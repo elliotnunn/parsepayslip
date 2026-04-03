@@ -107,6 +107,7 @@ class String:
     x: float
     y: float
     bold: bool
+    page: int
 
 
 # Headings starting with "~" mean "column might be a bit to the left"
@@ -144,19 +145,20 @@ def column_bounds(strings, headings):
 
 
 def get_table(strings, bounds):
-    lc = -1
+    lastpage = -1
     lasty = 9999999
     rows = []
     for s in strings:
         if s.bold:
             continue
 
-        if s.y < lasty:
-            rows.append([None] * (len(bounds) + 1))
-            lastcol = -1
-            lasty = s.y
-        elif s.y > lasty:
+        if s.y > lasty and s.page == lastpage:
             raise ValueError("aberrant cell above previous")
+        elif s.page > lastpage or s.y < lasty:
+            rows.append([None] * (len(bounds) + 1))
+            lastpage = s.page
+            lasty = s.y
+            lastcol = -1
 
         col = 0
         for left in bounds:
@@ -167,6 +169,7 @@ def get_table(strings, bounds):
             raise ValueError("aberrant cell to left of previous")
 
         rows[-1][col] = s.string
+        lastcol = col
 
     # Undo the wrapping of long strings rows
     # This is O(n^2) but easy on the eyes
@@ -194,7 +197,7 @@ def extract(pdfbinary):
 
     # For each page get a list of String objects
     pagetoks = [tok(stream) for stream in pagestreams]
-    pagestrings = [interpret(tokens) for tokens in pagetoks]
+    pagestrings = [interpret(tokens, page) for page, tokens in enumerate(pagetoks)]
 
     # Chop the header off page 3 and onwards
     bodypages = pagestrings[1]
@@ -547,7 +550,7 @@ def tok(stream):
     return toks
 
 
-def interpret(tokens):
+def interpret(tokens, page):
     """Convert token stream to String objects"""
 
     strings = []
@@ -556,7 +559,7 @@ def interpret(tokens):
         if t.startswith(b"/F"):
             font = t.decode("ascii")
         elif t.startswith(b"("):
-            strings.append(String(string=unescape(t).decode("cp1252"), x=x, y=y, bold=(font == "/F2")))
+            strings.append(String(string=unescape(t).decode("cp1252"), x=x, y=y, bold=(font == "/F2"), page=page))
         elif 48 <= t[0] < 58:
             try:
                 f = float(t)
